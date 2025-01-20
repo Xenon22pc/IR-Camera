@@ -1,7 +1,6 @@
 #include "htpa.h"
 #include "driver/i2c.h"
 #include "esp32-hal.h"
-#include "sensordef_32x32.h"
 #include "lookuptable.h"
 #include <stdio.h>
 #include <math.h>
@@ -12,25 +11,12 @@ uint8_t data_bottom[4][258];
 uint8_t electrical_offset_top[258];
 uint8_t electrical_offset_bottom[258];
 
-uint8_t read_EEPROM_byte(uint8_t deviceaddress, uint16_t eeaddress) {
-    uint8_t data;
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (deviceaddress << 1) | I2C_MASTER_WRITE, 1);
-    i2c_master_write_byte(cmd, eeaddress >> 8, 1);
-    i2c_master_write_byte(cmd, eeaddress & 0xFF, 1);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (deviceaddress << 1) | I2C_MASTER_READ, 1);
-    i2c_master_read_byte(cmd, &data, I2C_MASTER_LAST_NACK);
-    i2c_master_stop(cmd);
-    i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
-    return data;
-}
+extern SemaphoreHandle_t htpa_mutex;
+
 
 int HTPA_Init(HTPA_Data_t *data, HTPA_EEPROM_Data_t *eeprom, int i2c_num, int sda_pin, int scl_pin) {
-
-    CHECK_ERROR(HTPA_I2C_Init(i2c_num, sda_pin, scl_pin, CLOCK_SENSOR));
+    
+    CHECK_ERROR(HTPA_I2C_Init(i2c_num, sda_pin, scl_pin, 1000000));
     CHECK_ERROR(HTPA_ReadEEPROM(eeprom));
     // HTPA_PrintEEPROM(eeprom);
     uint8_t config = CONFIG_WAKEUP;
@@ -65,16 +51,6 @@ int HTPA_LoadCalibration(HTPA_EEPROM_Data_t *eeprom, bool user_calibration) {
     CHECK_ERROR(HTPA_I2C_Write(HTPA_TRIM_REG7, &PU, 1));
 
     return HTPA_OK;
-}
-
-void HTPA_PrintPixelTemps(HTPA_Data_t *data) {
-    printf("Print Pixel Temps\r\n");
-    for (int m = 0; m < 32; m++) {
-        for (int n = 0; n < 32; n++) {
-            printf("%.2f ",data->pixelTemps[m][n] );
-        }
-        printf("\r\n");
-    }
 }
 
 void HTPA_CalculatePixelSensitivity(HTPA_Data_t *data, HTPA_EEPROM_Data_t *eeprom) {
@@ -112,7 +88,7 @@ uint8_t HTPA_WaitDataReady(uint32_t timeout_ms) {
    return status;
 }
 
-int HTPA_GetElOffsets(HTPA_Data_t *data) {
+int HTPA_GetElOffsets() {
     uint8_t config = CONFIG_WAKEUP | CONFIG_START | CONFIG_BLIND;
     if (HTPA_I2C_Write(HTPA_CONFIG_REG, &config, 1)) {
         return HTPA_ERR;
@@ -237,11 +213,14 @@ void HTPA_CalculateTemperatures(HTPA_Data_t *data, HTPA_EEPROM_Data_t *eeprom) {
             // bilinear interpolation
             vx = ((((double)TempTable[table_row][table_col + 1] - (double)TempTable[table_row][table_col]) * (double)dta) / (double)TAEQUIDISTANCE) + (double)TempTable[table_row][table_col];
             vy = ((((double)TempTable[table_row + 1][table_col + 1] - (double)TempTable[table_row + 1][table_col]) * (double)dta) / (double)TAEQUIDISTANCE) + (double)TempTable[table_row + 1][table_col];
+
+            xSemaphoreTake(htpa_mutex, portMAX_DELAY);
             data->pixelTemps[i][j] = (double)((vy - vx) * ((double)(v_pixc + TABLEOFFSET) - (double)YADValues[table_row]) / (1 << ADEXPBITS) + (double)vx);
 
             // Apply global offset
             data->pixelTemps[i][j] = data->pixelTemps[i][j] + eeprom->GlobalOff;
             data->pixelTemps[i][j] = data->pixelTemps[i][j] / 10.0 - 273.15;
+            xSemaphoreGive(htpa_mutex);
                 // printf("temp: %f\n", data->pixelTemps[i][j]);
         }
     }
@@ -354,11 +333,10 @@ int HTPA_CaptureData(HTPA_Data_t *data, HTPA_EEPROM_Data_t *eeprom) {
     } else {
         CHECK_ERROR(HTPA_GetPixels(data, false));
     }
-    CHECK_ERROR(HTPA_GetElOffsets(data));
+    CHECK_ERROR(HTPA_GetElOffsets());
     HTPA_SortData(data);
     HTPA_CalculateTemperatures(data, eeprom);
     HTPA_PixelMasking(data, eeprom);
-    // HTPA_PrintPixelTemps();
     return HTPA_OK;
 }
 

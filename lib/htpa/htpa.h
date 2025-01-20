@@ -150,11 +150,10 @@ typedef struct {
 
 int HTPA_Init(HTPA_Data_t *data, HTPA_EEPROM_Data_t *eeprom, int i2c_num, int sda_pin, int scl_pin);
 int HTPA_LoadCalibration(HTPA_EEPROM_Data_t *eeprom, bool user_calibration);
-void HTPA_PrintPixelTemps(HTPA_Data_t *data);
 void HTPA_CalculatePixelSensitivity(HTPA_Data_t *data, HTPA_EEPROM_Data_t *eeprom);
 uint8_t HTPA_WaitDataReady(uint32_t timeout_ms);
 int HTPA_GetPixels(HTPA_Data_t *data, bool vdd_meas);
-int HTPA_GetElOffsets(HTPA_Data_t *data);
+int HTPA_GetElOffsets();
 void HTPA_SortData(HTPA_Data_t *data);
 void HTPA_CalculateTemperatures(HTPA_Data_t *data, HTPA_EEPROM_Data_t *eeprom);
 void HTPA_PixelMasking(HTPA_Data_t *data, HTPA_EEPROM_Data_t *eeprom);
