@@ -128,7 +128,7 @@ void DrawHQImage(HTPA_Data_t* htpa_data, tRGBcolor *pPalette, uint16_t PaletteSi
 }
 #endif
 
-void DrawScale(uint16_t X, uint16_t Y, uint16_t Width, uint16_t Height, float minTemp, float maxTemp)
+void DrawScale(uint16_t X, uint16_t Y, uint16_t Width, uint16_t Height)
 {
 	tRGBcolor *Buffer = getPalette(PALETTE_IRON, Height);
 	if (!Buffer)
@@ -141,19 +141,6 @@ void DrawScale(uint16_t X, uint16_t Y, uint16_t Width, uint16_t Height, float mi
 	}
 
     freePalette(Buffer);
-
-    char str[16] = {0};
-    int16_t TextWidth = 0;
-
-    sprintf(str, "%.0f", maxTemp);
-    TextWidth = tft.textWidth(str, 2);
-    tft.setTextColor(TFT_BLACK);
-    tft.drawString(str, X + (Width - TextWidth) / 2, Y + 2, 2);
-
-    sprintf(str, "%.0f", minTemp);
-    TextWidth = tft.textWidth(str, 2);
-    tft.setTextColor(TFT_WHITE);
-    tft.drawString(str, X + (Width - TextWidth) / 2, Y + Height - tft.fontHeight(2), 2);
 }
 
 void DrawCenterTempColor(uint16_t cX, uint16_t cY, float Temp, tRGBcolor *color)
@@ -232,6 +219,8 @@ void displayTask(void *pvParameters) {
     float minTempNew = SCALE_DEFAULT_MIN;
     float maxTempNew = SCALE_DEFAULT_MAX;
 
+	DrawScale(dispWidth - 52, 0, 50, imageHeight);
+
     while(1) {
         if(xSemaphoreTake(data_ready_sem, pdMS_TO_TICKS(100)) == pdTRUE) {
 			xSemaphoreTake(htpa_mutex, portMAX_DELAY);
@@ -267,22 +256,36 @@ void displayTask(void *pvParameters) {
             maxT = min(maxT, (float)MAX_TEMP);
             minT = max(minT, (float)MIN_TEMP);
 
-            DrawCenterTemp(0, (dispHeight - imageHeight) >> 1, imageWidth, imageHeight, MainTemp);
+            DrawCenterTemp(0, 0, imageWidth, imageHeight, MainTemp);
+			
+			if ((minTempNew != minTemp) || (maxTempNew != maxTemp)) {
+					float Delta = maxTempNew - minTempNew;
+					if (Delta < MIN_TEMPSCALE_DELTA) {
+						minTempNew -= (MIN_TEMPSCALE_DELTA - Delta) / 2;
+						maxTempNew += (MIN_TEMPSCALE_DELTA - Delta) / 2;
+					}
 
-            if ((minTempNew != minTemp) || (maxTempNew != maxTemp)) {
-                float Delta = maxTempNew - minTempNew;
-                if (Delta < MIN_TEMPSCALE_DELTA) {
-                    minTempNew -= (MIN_TEMPSCALE_DELTA - Delta) / 2;
-                    maxTempNew += (MIN_TEMPSCALE_DELTA - Delta) / 2;
-                }
+					minTemp = minTempNew;
+					maxTemp = maxTempNew;
 
-                minTemp = minTempNew;
-                maxTemp = maxTempNew;
+					freePalette(pPalette);
+					PaletteSteps = (uint16_t)((maxTemp - minTemp) * 10);
+					pPalette = getPalette(PALETTE_IRON, PaletteSteps);
+					char str[16] = {0};
+					int16_t TextWidth = 0;
 
-                freePalette(pPalette);
-                PaletteSteps = (uint16_t)((maxTemp - minTemp) * 10);
-                pPalette = getPalette(PALETTE_IRON, PaletteSteps);
-            }
+					sprintf(str, "%2.0f", maxTemp);
+					TextWidth = tft.textWidth(str, 2);
+					tft.setTextColor(TFT_BLACK, TFT_WHITE);
+					tft.fillRect(dispWidth - 52 + (50 - TextWidth) / 2, 2, 50, tft.fontHeight(2), TFT_WHITE);
+					tft.drawString(str, dispWidth - 52 + (50 - TextWidth) / 2, 2, 2);
+
+					sprintf(str, "%2.0f", minTemp);
+					TextWidth = tft.textWidth(str, 2);
+					tft.fillRect(dispWidth - 52 + (50 - TextWidth) / 2, imageHeight - tft.fontHeight(2), 50, tft.fontHeight(2), TFT_BLACK);
+					tft.setTextColor(TFT_WHITE, TFT_BLACK);
+					tft.drawString(str, dispWidth - 52 + (50 - TextWidth) / 2, imageHeight - tft.fontHeight(2), 2);
+				}
 
             frameCount++;
             uint32_t currentMillis = millis();
